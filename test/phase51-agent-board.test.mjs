@@ -230,4 +230,37 @@ function stub(handler) {
   service.dispose();
 }
 
-console.log('Agent board: single task, normalisation, cache, no double spend, fallback, persistence, scrape+insights, mode switch — all passed.');
+// 11. A rewound clock must not freeze the board, and the agent prompt stays under the 10k limit.
+{
+  let now = 1_700_000_000_000;
+  const calls = [];
+  const rows = Array.from({ length: 25 }, (_, i) => ({
+    name: `owner/repo${i}`, url: `https://github.com/owner/repo${i}`,
+    description: 'x'.repeat(600), language: 'TypeScript', stars: 100 + i, starsToday: i,
+  }));
+  const fetchMock = async (url, options) => {
+    calls.push({ url, body: options.body ? JSON.parse(options.body) : undefined });
+    if (url.endsWith('/v2/scrape')) return json({ success: true, data: { json: { repositories: rows } } });
+    if (url.endsWith('/v2/agent')) return json({ success: true, id: '01a1be20-0000-4000-8000-000000000000' });
+    return json({ status: 'processing' });
+  };
+  const service = new TrendingService({ apiKey: 'k', source: 'scrape', agentPollMs: 10 }, fetchMock, () => now);
+
+  await service.get('daily');
+  const scraped = calls.length;
+  // 时钟回拨 10 分钟：负 age 必须视为过期，否则这一版缓存会永久命中。
+  now -= 600_000;
+  await service.get('daily');
+  assert.ok(calls.length > scraped, 'a rewound clock refetches instead of freezing the cache');
+
+  // 榜单没有总结时才会走二次分析；它的 prompt 必须压到 /v2/agent 的 10,000 字符上限以内。
+  await service.agentStart('daily');
+  const agentCall = calls.find((call) => call.url.endsWith('/v2/agent'));
+  assert.ok(agentCall, 'second-pass analysis reaches the agent endpoint');
+  assert.ok(agentCall.body.prompt.length <= 10_000, `prompt keeps under the documented cap (${agentCall.body.prompt.length})`);
+  assert.ok(agentCall.body.prompt.length <= 9_500, 'prompt keeps the safety margin');
+  assert.ok(agentCall.body.prompt.length > 1_000, 'prompt still carries real descriptions');
+  service.dispose();
+}
+
+console.log('Agent board: single task, normalisation, cache, no double spend, fallback, persistence, scrape+insights, mode switch, clock and prompt bounds — all passed.');
