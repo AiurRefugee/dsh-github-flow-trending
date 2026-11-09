@@ -57,18 +57,14 @@ Firecrawl 使用 `/v2/scrape` 的 `formats: [{ type: 'json', schema, prompt }]`�
 
 列表按上述六字段顺序展示，保留 GitHub 原榜顺序。数据默认缓存三小时；面板挂载、切换周期和 Agent 工具调用（`refresh` 为 false）**都先过缓存**，只有缓存过期（或为空）才会真正请求 Firecrawl；点“刷新榜单”是唯一跳过缓存、立即重抓并消耗额度的入口。每周期独立缓存，并发请求合并。刷新失败继续显示上次成功数据并标注时间与警告。缓存同时落盘到 `~/.dsh/data/dsh-github-flow/trending-cache/<period>.json`（0600），因此热重载或重启应用后仍按剩余 TTL 复用；落盘内容每次读取都会重新走六字段校验，损坏或版本不符的文件按“无缓存”丢弃。不后台定时抓取。
 
-## Firecrawl Agent 趋势洞察
+## 趋势洞察
 
-三个周期的榜单右侧各有一个独立的 **AI 趋势洞察** 卡片。点击“生成趋势洞察”后，插件通过服务端 `POST /v2/agent` 发起 Firecrawl Agent 任务；浏览器通过本地 `/api/github/trending-agent` 的 `status` 操作轮询服务端，由服务端查询 `GET /v2/agent/{jobId}`。页面不暴露 Firecrawl Key 或任意远端任务 ID。
+右侧「AI 趋势洞察」与榜单**来自同一次请求**：scrape 模式在一次 JSON 抽取里同时拿到 `summary` / `observations` 与每条简介的中文译文；agent 模式由同一个 Agent 任务产出。页面没有「生成趋势洞察」按钮，也不会为洞察再发起第二个付费任务。
 
-- **自动生成**：榜单抓取成功后自动发起分析；重复查看同一周期快照不重复创建任务。
-- **周期隔离**：每日、每周、每月独立保存分析任务与结果，基于各自的榜单抓取快照。重复点击已创建任务不重复消耗 Agent 启动额度。
-- **结果展示**：右侧显示中文趋势总结、观察与发现，以及加载中 / 出错状态。Agent 分析失败不会影响榜单本身。
-- **数据契约**：项目表格仍只有固定的 `name / url / description / language / stars / starsToday` 六字段。分析位于独立对象，不加入项目行。
-- **刷新行为**：抓取到新榜单快照后才允许新任务；同一快照默认沿用已有分析。服务重启后内存中的任务与结果会丢失。
-- **服务兼容**：自托管 Firecrawl 需要额外支持 `/v2/agent` 和 `/v2/agent/{jobId}`，仅支持 Scrape 的部署仍可正常显示榜单，但 Agent 分析不可用。
-
-页面风格采用圆角卡片、层级留白、柔和边框、系统字体与 DSH 主题变量，深色模式跟随 `body[data-ds-dark-theme]`；窄屏下洞察卡片移至表格下方。
+- **周期隔离**：三个周期各自缓存洞察，随各自榜单快照一起更新。
+- **降级**：抽取没给出合法总结时只丢洞察、保留榜单，结果仍带 `insightMode` 标记，前端不会再补一次 Agent 调用。
+- **数据契约**：项目表格仍只有固定的 `name / url / description / language / stars / starsToday` 六字段；译文以 sidecar 形式存在，不进入项目行。
+- **服务兼容**：自托管 Firecrawl 只需支持 `/v2/scrape`；agent 模式额外需要 `/v2/agent` 与 `/v2/agent/{jobId}`，不可用时请把 `trendingSource` 设回 `scrape`。
 
 ## 项目简介中英双语
 
